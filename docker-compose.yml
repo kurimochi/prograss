@@ -1,0 +1,14 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      TOKEN: ${TOKEN}
+      DB_FILE: ${DB_FILE}
+      BACKUP_DB_FILE: ${BACKUP_DB_FILE}
+    volumes:
+      - prograss_data:/app
+
+volumes:
+  prograss_data:
