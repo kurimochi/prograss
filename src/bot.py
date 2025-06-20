@@ -204,11 +204,20 @@ async def config(ctx: discord.Interaction, key: str, value: str):
 
 # /fubuki  こんこんきーつね!!
 @tree.command(name='fubuki', description='こんこんきーつね!!')
-async def fubuki(ctx: discord.Interaction):
-    embed = discord.Embed(
-        title='こんこんきーつね！(^・ω・^§)ﾉ',
-        color=0x53c7ea
-    )
+@app_commands.describe(message='？？？')
+async def fubuki(ctx: discord.Interaction, message: str = ''):
+    processed = message.lower()
+    match processed:
+        case 'nekoyanke' | 'ねこやんけ' | '猫やんけ':
+            embed = discord.Embed(
+                title='狐じゃい！！ฅ(^`ω´^ฅ§)ﾉ',
+                color=0x53c7ea
+            )
+        case _:
+            embed = discord.Embed(
+                title='こんこんきーつね！(^・ω・^§)ﾉ',
+                color=0x53c7ea
+            )
     await ctx.response.send_message('🌽'*32, embed=embed)
 
 # /aggregate  現時点での進捗一覧
@@ -306,7 +315,7 @@ async def cron():
                     icon_url=user.avatar.url
                 )
                 embed.add_field(name='早く進捗出しやがれください！！', value='<:custom_emoji:1384184744878805027>'*16)
-                file = discord.File(fp='./shinchoku_nainatta.png', filename='shinchoku_nainatta.png', spoiler=False)
+                file = discord.File(fp='src/shinchoku_nainatta.png', filename='shinchoku_nainatta.png', spoiler=False)
                 embed.set_image(url='attachment://shinchoku_nainatta.png')
                 text = f'<@{user_id}>\n' + '<:custom_emoji:1384184744878805027>'*12
 
