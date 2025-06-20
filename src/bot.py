@@ -88,8 +88,8 @@ async def on_ready():
 # /register  prograssに登録
 @tree.command(name='register', description='prograssに登録')
 @app_commands.describe(channel='定期メッセージを送信するチャンネル (メンション or ID)')
-async def register(interaction: discord.Interaction, channel: str):
-    user_id = interaction.user.id
+async def register(ctx: discord.Interaction, channel: str):
+    user_id = ctx.user.id
 
     if registered(user_id):
         embed = discord.Embed(
@@ -113,12 +113,12 @@ async def register(interaction: discord.Interaction, channel: str):
             )
             embed.add_field(name='Invalid channel parameter.', value='Please mention the channels that exist')
 
-    await interaction.response.send_message(embed=embed)
+    await ctx.response.send_message(embed=embed)
 
 # /unregister  prograssの登録を解除
 @tree.command(name='unregister', description='prograssの登録を解除')
-async def unregister(interaction: discord.Interaction):
-    user_id = interaction.user.id
+async def unregister(ctx: discord.Interaction):
+    user_id = ctx.user.id
 
     if registered(user_id):
         cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
@@ -134,13 +134,13 @@ async def unregister(interaction: discord.Interaction):
         )
         embed.add_field(name='You are not yet registered.', value='')
 
-    await interaction.response.send_message(embed=embed)
+    await ctx.response.send_message(embed=embed)
 
 # /submit  進捗を登録する
 @tree.command(name='submit', description='進捗を登録')
 @app_commands.describe(progress='進捗内容')
-async def submit(interaction: discord.Interaction, progress: str):
-    user_id = interaction.user.id
+async def submit(ctx: discord.Interaction, progress: str):
+    user_id = ctx.user.id
 
     if registered(user_id):
         cursor.execute('INSERT INTO progress (user_id, message) VALUES (?, ?)', (user_id, progress))
@@ -156,17 +156,17 @@ async def submit(interaction: discord.Interaction, progress: str):
             color=0xbf1e33
         )
         embed.add_field(name='You were not registered.', value='Please register using /register')
-    await interaction.response.send_message(embed=embed)
+    await ctx.response.send_message(embed=embed)
 
 # /config  ユーザーごとの設定を変更
 @tree.command(name='config', description='設定を変更')
 @app_commands.describe(key='変更する項目 (channel, noticeのいずれか)', value='変更後の値 (channel -> チャンネルをメンション  notice -> HH:MM)')
-async def config(interaction: discord.Interaction, key: str, value: str):
-    if registered(interaction.user.id):
+async def config(ctx: discord.Interaction, key: str, value: str):
+    if registered(ctx.user.id):
         if key == 'channel':
             channel, judge = channel_judge(value)
             if judge:
-                cursor.execute('UPDATE users SET channel = ? WHERE user_id = ?', (channel, interaction.user.id))
+                cursor.execute('UPDATE users SET channel = ? WHERE user_id = ?', (channel, ctx.user.id))
                 conn.commit()
                 embed = discord.Embed(
                     title='Channel config have been successfully updated',
@@ -181,7 +181,7 @@ async def config(interaction: discord.Interaction, key: str, value: str):
         elif key == 'notice':
             if not re.fullmatch('([01][0-9]|2[0-3]):[0-5][0-9]', value):
                 value = ''
-            cursor.execute('UPDATE users SET notice = ? WHERE user_id = ?', (value, interaction.user.id))
+            cursor.execute('UPDATE users SET notice = ? WHERE user_id = ?', (value, ctx.user.id))
             conn.commit()
             embed = discord.Embed(
                 title='Notice config have been successfully updated',
@@ -200,22 +200,22 @@ async def config(interaction: discord.Interaction, key: str, value: str):
             color=0xbf1e33
         )
         embed.add_field(name='You were not registered.', value='Please register using /register')
-    await interaction.response.send_message(embed=embed)
+    await ctx.response.send_message(embed=embed)
 
 # /fubuki  こんこんきーつね!!
 @tree.command(name='fubuki', description='こんこんきーつね!!')
-async def fubuki(interaction: discord.Interaction):
+async def fubuki(ctx: discord.Interaction):
     embed = discord.Embed(
         title='こんこんきーつね！(^・ω・^§)ﾉ',
         color=0x53c7ea
     )
-    await interaction.response.send_message('🌽'*32, embed=embed)
+    await ctx.response.send_message('🌽'*32, embed=embed)
 
 # /aggregate  現時点での進捗一覧
 @tree.command(name='aggregate', description='今日00:00から現時点までの進捗一覧を表示')
-async def aggregate(interaction: discord.Interaction):
-    if registered(interaction.user.id):
-        progress = aggr_internal(interaction.user.id)
+async def aggregate(ctx: discord.Interaction):
+    if registered(ctx.user.id):
+        progress = aggr_internal(ctx.user.id)
 
         if progress == []:
             embed = discord.Embed(
@@ -228,8 +228,8 @@ async def aggregate(interaction: discord.Interaction):
                 color=0x219ddd
             )
             embed.set_author(
-                name=interaction.user.name,
-                icon_url=interaction.user.avatar.url
+                name=ctx.user.name,
+                icon_url=ctx.user.avatar.url
             )
             embed.add_field(name='', value=''.join([f'1. {p[0]}\n' for p in progress]))
     else:
@@ -239,7 +239,7 @@ async def aggregate(interaction: discord.Interaction):
         )
         embed.add_field(name='You were not registered.', value='Please register using /register')
 
-    await interaction.response.send_message(embed=embed)
+    await ctx.response.send_message(embed=embed)
 
 @tasks.loop(seconds=60)
 async def cron():
