@@ -267,8 +267,31 @@ async def cron():
             text = f'<@{user_id}>'
 
             cursor.execute('SELECT channel FROM users WHERE user_id = ?', (user_id,))
-            channel = client.get_channel(cursor.fetchone()[0])
-            msg = await channel.send(text, embed=embed)
+            channel_id = cursor.fetchone()[0]
+            channel = client.get_channel(channel_id)
+            try:
+                msg = await channel.send(text, embed=embed)
+            except AttributeError:
+                embed = gen_error_embed(
+                    'The channel you set up is inaccessible or has been deleted',
+                    'Please change channel with /config',
+                    {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                )
+                await user.send(embed=embed)
+            except discord.errors.Forbidden:
+                embed = gen_error_embed(
+                    'Message cannot be sent on this channel',
+                    'Please set up a channel for possible transmission or contact your server administrator',
+                    {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                )
+                await user.send(embed=embed)
+            except Exception:
+                embed = gen_error_embed(
+                    'An unexpected error has occurred',
+                    'Please contact the developer',
+                    {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                )
+                await user.send(embed=embed)
 
             # バックアップ・削除
             cursor.execute('SELECT message, timestamp FROM progress WHERE user_id = ?', (user_id,))
@@ -313,8 +336,31 @@ async def cron():
                 text = f'<@{user_id}>\n' + '<:custom_emoji:1384184744878805027>'*12
 
                 cursor.execute('SELECT channel FROM users WHERE user_id = ?', (user_id,))
-                channel = client.get_channel(cursor.fetchone()[0])
-                await channel.send(text, file=file, embed=embed)
+                channel_id = cursor.fetchone()[0]
+                channel = client.get_channel(channel_id)
+                try:
+                    await channel.send(text, file=file, embed=embed)
+                except AttributeError:
+                    embed = gen_error_embed(
+                        'The channel you set up is inaccessible or has been deleted',
+                        'Please change channel with /config',
+                        {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                    )
+                    await user.send(embed=embed)
+                except discord.errors.Forbidden:
+                    embed = gen_error_embed(
+                        'Message cannot be sent on this channel',
+                        'Please set up a channel for possible transmission or contact your server administrator',
+                        {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                    )
+                    await user.send(embed=embed)
+                except Exception:
+                    embed = gen_error_embed(
+                        'An unexpected error has occurred',
+                        'Please contact the developer',
+                        {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                    )
+                    await user.send(embed=embed)
 
     cursor.execute('SELECT user_id FROM users')
     users = cursor.fetchall()
@@ -336,24 +382,6 @@ async def on_member_remove(member: discord.Member):
                 {'Server': member.guild.name, 'Channel': result[2], 'Notice': result[3]}
             )
             await user.send(embed=embed)
-
-@client.event
-async def on_guild_channel_delete(channel: discord.abc.GuildChannel):
-    cursor.execute('SELECT * FROM users WHERE channel = ?', (channel.id,))
-    result = cursor.fetchall()
-    if result:
-        async def remind_channel(user_info):
-            cursor.execute('UPDATE users SET channel = ? WHERE user_id = ?', ('', user_info[1]))
-            conn.commit()
-            embed = gen_error_embed(
-                'The channel you set up is inaccessible or has been deleted',
-                'Please change channel with /config',
-                {'Server': channel.guild.name, 'Channel': user_info[2]}
-            )
-            user = await client.fetch_user(user_info[1])
-            await user.send(embed=embed)
-        for info in result:
-            asyncio.create_task(remind_channel(info))
 
 # Botの起動とDiscordサーバーへの接続
 client.run(TOKEN)
