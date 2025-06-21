@@ -68,7 +68,7 @@ def channel_judge(channel):
     if channel[:2] == '<#' and channel[-1] == '>':
         channel = channel[2:-1]
 
-    if channel.isdigit() and client.get_channel(int(channel)) is not None:
+    if channel.isdigit() and client.get_channel(int(channel)):
         return (channel, True)
     else:
         return (channel, False)
@@ -351,6 +351,25 @@ async def on_member_remove(member: discord.Member):
                 value=f'Server: {member.guild.name}\nchannel: {result[2]}\nnotice: {result[3]}'
             )
             await user.send(embed=embed)
+
+@client.event
+async def on_guild_channel_delete(channel: discord.abc.GuildChannel):
+    cursor.execute('SELECT * FROM users WHERE channel = ?', (channel.id,))
+    result = cursor.fetchall()
+    if result:
+        async def remind_channel(user_info):
+            cursor.execute('UPDATE users SET channel = ? WHERE user_id = ?', ('', user_info[1]))
+            conn.commit()
+            embed = discord.Embed(
+                title='Unable to access your configured channel',
+                color=0xbf1e33
+            )
+            embed.add_field(name='Detail', value='The channel you set up is inaccessible or has been deleted.')
+            embed.add_field(name='Approach', value='Please change channel with /config command')
+            user = await client.fetch_user(user_info[1])
+            await user.send(embed=embed)
+        for info in result:
+            asyncio.create_task(remind_channel(info))
 
 # Botの起動とDiscordサーバーへの接続
 client.run(TOKEN)
