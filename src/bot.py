@@ -13,6 +13,7 @@ BACKUP_DB_FILE = os.getenv('BACKUP_DB_FILE')
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
@@ -327,6 +328,29 @@ async def cron():
     users = cursor.fetchall()
     for u in users:
         asyncio.create_task(notice(u[0]))
+
+@client.event
+async def on_member_remove(member: discord.Member):
+    cursor.execute('SELECT * FROM users WHERE user_id = ?', (member.id,))
+    result = cursor.fetchone()
+    if result:
+        cursor.execute('DELETE FROM users WHERE user_id = ?', (member.id,))
+        conn.commit()
+        user = await client.fetch_user(member.id)
+        if user:
+            embed = discord.Embed(
+                title='User\'s registration information has been deleted',
+                color=0xbf1e33
+            )
+            embed.add_field(
+                name='You have been removed from the server and your registration information has been deleted.',
+                value='Re-registration is required to rejoin and use a server you have left'
+            )
+            embed.add_field(
+                name='Registration Information',
+                value=f'Server: {member.guild.name}\nchannel: {result[2]}\nnotice: {result[3]}'
+            )
+            await user.send(embed=embed)
 
 # Botの起動とDiscordサーバーへの接続
 client.run(TOKEN)
