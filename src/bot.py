@@ -53,6 +53,26 @@ backup_cursor.execute('CREATE TABLE IF NOT EXISTS progress ( \
 conn.commit()
 backup_conn.commit()
 
+def gen_error_embed(details, approach, info={}):
+    embed = discord.Embed(
+        title='Error!',
+        color=0xbf1e33
+    )
+    embed.add_field(name='Details', value=details)
+    embed.add_field(name='Approach', value=approach)
+
+    if info:
+        keys = list(info.keys())
+        if keys:
+            max_key_length = max(len(key) for key in keys)
+            embed.add_field(
+                name='Info',
+                value='```' + ''.join([f'{key:<{max_key_length}}: {value}\n' for key, value in info.items()]) + '```',
+                inline=False
+            )
+
+    return embed
+
 # ユーザーが登録しているかを判定
 def registered(user_id):
     cursor.execute('SELECT user_id FROM users WHERE user_id = ?', (user_id,))
@@ -93,11 +113,7 @@ async def register(ctx: discord.Interaction, channel: str):
     user_id = ctx.user.id
 
     if registered(user_id):
-        embed = discord.Embed(
-            title='Error!',
-            color=0xbf1e33
-        )
-        embed.add_field(name='You are already registered.', value='')
+        embed = gen_error_embed('You are already registered', 'If you think this is a mistake, please contact the developer')
     else:
         channel, judge = channel_judge(channel)
         if judge:
@@ -108,11 +124,7 @@ async def register(ctx: discord.Interaction, channel: str):
                 color=0x219ddd
             )
         else:
-            embed = discord.Embed(
-                title='Error!',
-                color=0xbf1e33
-            )
-            embed.add_field(name='Invalid channel parameter.', value='Please mention the channels that exist')
+            embed = gen_error_embed('Invalid channel parameter', 'Please mention the channels that exist')
 
     await ctx.response.send_message(embed=embed)
 
@@ -129,11 +141,7 @@ async def unregister(ctx: discord.Interaction):
             color=0x219ddd
         )
     else:
-        embed = discord.Embed(
-            title='Error!',
-            color=0xbf1e33
-        )
-        embed.add_field(name='You are not yet registered.', value='')
+        embed = gen_error_embed('You are not yet registered', 'If you think this is a mistake, please contact the developer')
 
     await ctx.response.send_message(embed=embed)
 
@@ -152,11 +160,7 @@ async def submit(ctx: discord.Interaction, progress: str):
         )
         embed.add_field(name='Progress:', value=progress)
     else:
-        embed = discord.Embed(
-            title='Error!',
-            color=0xbf1e33
-        )
-        embed.add_field(name='You were not registered.', value='Please register using /register')
+        embed = gen_error_embed('You are not yet registered', 'Please register using /register')
     await ctx.response.send_message(embed=embed)
 
 # /config  ユーザーごとの設定を変更
@@ -174,11 +178,7 @@ async def config(ctx: discord.Interaction, key: str, value: str):
                     color=0x219ddd
                 )
             else:
-                embed = discord.Embed(
-                    title='Error!',
-                    color=0xbf1e33
-                )
-                embed.add_field(name='Invalid channel parameter.', value='Please mention the channels that exist')
+                embed = gen_error_embed('Invalid channel parameter', 'Please mention the channels that exist')
         elif key == 'notice':
             if not re.fullmatch('([01][0-9]|2[0-3]):[0-5][0-9]', value):
                 value = ''
@@ -190,17 +190,13 @@ async def config(ctx: discord.Interaction, key: str, value: str):
             )
             embed.add_field(name='New config:', value='No notification' if value == '' else value)
         else:
-            embed = discord.Embed(
-                title='Error!',
-                color=0xbf1e33
-            )
-            embed.add_field(name='A key that does not exist.', value='Please specify a key that exists')
+            embed = gen_error_embed('A key that does not exist', 'Please specify a key that exists')
     else:
         embed = discord.Embed(
             title='Error!',
             color=0xbf1e33
         )
-        embed.add_field(name='You were not registered.', value='Please register using /register')
+        embed = gen_error_embed('You are not yet registered', 'Please register using /register')
     await ctx.response.send_message(embed=embed)
 
 # /fubuki  こんこんきーつね!!
@@ -243,11 +239,7 @@ async def aggregate(ctx: discord.Interaction):
             )
             embed.add_field(name='', value=''.join([f'1. {p[0]}\n' for p in progress]))
     else:
-        embed = discord.Embed(
-            title='Error!',
-            color=0xbf1e33
-        )
-        embed.add_field(name='You were not registered.', value='Please register using /register')
+        embed = gen_error_embed('You are not yet registered', 'Please register using /register')
 
     await ctx.response.send_message(embed=embed)
 
@@ -338,17 +330,10 @@ async def on_member_remove(member: discord.Member):
         conn.commit()
         user = await client.fetch_user(member.id)
         if user:
-            embed = discord.Embed(
-                title='User\'s registration information has been deleted',
-                color=0xbf1e33
-            )
-            embed.add_field(
-                name='You have been removed from the server and your registration information has been deleted.',
-                value='Re-registration is required to rejoin and use a server you have left'
-            )
-            embed.add_field(
-                name='Registration Information',
-                value=f'Server: {member.guild.name}\nchannel: {result[2]}\nnotice: {result[3]}'
+            embed = gen_error_embed(
+                'You have been removed from the server and your registration information has been deleted',
+                'Re-registration is required to rejoin and use a server you have left',
+                {'Server': member.guild.name, 'Channel': result[2], 'Notice': result[3]}
             )
             await user.send(embed=embed)
 
@@ -360,12 +345,11 @@ async def on_guild_channel_delete(channel: discord.abc.GuildChannel):
         async def remind_channel(user_info):
             cursor.execute('UPDATE users SET channel = ? WHERE user_id = ?', ('', user_info[1]))
             conn.commit()
-            embed = discord.Embed(
-                title='Unable to access your configured channel',
-                color=0xbf1e33
+            embed = gen_error_embed(
+                'The channel you set up is inaccessible or has been deleted',
+                'Please change channel with /config',
+                {'Server': channel.guild.name, 'Channel': user_info[2]}
             )
-            embed.add_field(name='Detail', value='The channel you set up is inaccessible or has been deleted.')
-            embed.add_field(name='Approach', value='Please change channel with /config command')
             user = await client.fetch_user(user_info[1])
             await user.send(embed=embed)
         for info in result:
