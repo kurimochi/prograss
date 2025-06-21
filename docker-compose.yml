@@ -3,12 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    environment:
-      TOKEN: ${TOKEN}
-      DB_FILE: ${DB_FILE}
-      BACKUP_DB_FILE: ${BACKUP_DB_FILE}
+    env_file:
+      - .env
     volumes:
-      - prograss_data:/app
+      - data:/app/db
 
 volumes:
-  prograss_data:
+  data:
