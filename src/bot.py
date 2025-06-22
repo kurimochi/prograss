@@ -32,8 +32,12 @@ cursor.execute('CREATE TABLE IF NOT EXISTS progress ( \
 cursor.execute('CREATE TABLE IF NOT EXISTS users ( \
                     id INTEGER PRIMARY KEY, \
                     user_id INTEGER NOT NULL, \
-                    channel INTEGER NOT NULL, \
                     notice TEXT \
+                )')
+cursor.execute('CREATE TABLE IF NOT EXISTS channels ( \
+                    id INTEGER PRIMARY KEY, \
+                    user_id INTEGER NOT NULL, \
+                    channel INTEGER NOT NULL \
                 )')
 cursor.execute('CREATE TABLE IF NOT EXISTS votes ( \
                     id INTEGER PRIMARY KEY, \
@@ -117,7 +121,8 @@ async def register(ctx: discord.Interaction, channel: str):
     else:
         channel, judge = channel_judge(channel)
         if judge:
-            cursor.execute('INSERT INTO users (user_id, channel) VALUES (?, ?)', (user_id, channel,))
+            cursor.execute('INSERT INTO users (user_id) VALUES (?)', (user_id,))
+            cursor.execute('INSERT INTO channels (user_id, channel) VALUES (?, ?)', (user_id, channel,))
             conn.commit()
             embed = discord.Embed(
                 title='Registration completed',
@@ -135,6 +140,7 @@ async def unregister(ctx: discord.Interaction):
 
     if registered(user_id):
         cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
+        cursor.execute('DELETE FROM channels WHERE user_id = ?', (user_id,))
         conn.commit()
         embed = discord.Embed(
             title='Unregistration completed',
@@ -152,7 +158,7 @@ async def submit(ctx: discord.Interaction, progress: str):
     user_id = ctx.user.id
 
     if registered(user_id):
-        cursor.execute('INSERT INTO progress (user_id, message) VALUES (?, ?)', (user_id, progress))
+        cursor.execute('INSERT INTO progress (user_id, message) VALUES (?, ?)', (user_id, progress,))
         conn.commit()
         embed = discord.Embed(
             title='Progress was submitted',
@@ -165,24 +171,43 @@ async def submit(ctx: discord.Interaction, progress: str):
 
 # /config  ユーザーごとの設定を変更
 @tree.command(name='config', description='設定を変更')
-@app_commands.describe(key='変更する項目 (channel, noticeのいずれか)', value='変更後の値 (channel -> チャンネルをメンション  notice -> HH:MM)')
-async def config(ctx: discord.Interaction, key: str, value: str):
+@app_commands.describe(key='変更する項目 (channel, noticeのいずれか)', value='変更後の値 (channel -> チャンネルをメンション  notice -> HH:MM)', operation='channelのみ、add -> 追加  del -> 削除')
+async def config(ctx: discord.Interaction, key: str, value: str, operation: str = ''):
     if registered(ctx.user.id):
         if key == 'channel':
             channel, judge = channel_judge(value)
             if judge:
-                cursor.execute('UPDATE users SET channel = ? WHERE user_id = ?', (channel, ctx.user.id))
-                conn.commit()
-                embed = discord.Embed(
-                    title='Channel config have been successfully updated',
-                    color=0x219ddd
-                )
+                if operation == 'add':
+                    cursor.execute('INSERT INTO channels (user_id, channel) VALUES (?, ?)', (ctx.user.id, channel,))
+                    conn.commit()
+                    embed = discord.Embed(
+                        title='Channel config have been successfully updated',
+                        color=0x219ddd
+                    )
+                elif operation == 'del':
+                    cursor.execute('SELECT channel FROM channels WHERE user_id = ? AND channel != ?', (ctx.user.id, channel,))
+                    if cursor.fetchall() != []:
+                        cursor.execute('SELECT channel FROM channels WHERE user_id = ? AND channel = ?', (ctx.user.id, channel,))
+                        if cursor.fetchall() != []:
+                            cursor.execute('DELETE FROM channels WHERE user_id = ? AND channel = ?', (ctx.user.id, channel,))
+                            conn.commit()
+                            embed = discord.Embed(
+                                title='Channel config have been successfully updated',
+                                color=0x219ddd
+                            )
+                        else:
+                            embed = gen_error_embed('No record for that value exists', 'Please enter the records that exist')
+                    else:
+                        embed = gen_error_embed('Too few channels set', 'Add 1 or more channels')
+                else:
+                    embed = gen_error_embed('Invalid operation', 'Please enter add or del')
             else:
                 embed = gen_error_embed('Invalid channel parameter', 'Please mention the channels that exist')
+
         elif key == 'notice':
             if not re.fullmatch('([01][0-9]|2[0-3]):[0-5][0-9]', value):
                 value = ''
-            cursor.execute('UPDATE users SET notice = ? WHERE user_id = ?', (value, ctx.user.id))
+            cursor.execute('UPDATE users SET notice = ? WHERE user_id = ?', (value, ctx.user.id,))
             conn.commit()
             embed = discord.Embed(
                 title='Notice config have been successfully updated',
@@ -191,12 +216,14 @@ async def config(ctx: discord.Interaction, key: str, value: str):
             embed.add_field(name='New config:', value='No notification' if value == '' else value)
         else:
             embed = gen_error_embed('A key that does not exist', 'Please specify a key that exists')
+
     else:
         embed = discord.Embed(
             title='Error!',
             color=0xbf1e33
         )
         embed = gen_error_embed('You are not yet registered', 'Please register using /register')
+
     await ctx.response.send_message(embed=embed)
 
 # /fubuki  こんこんきーつね!!
@@ -266,32 +293,35 @@ async def cron():
             embed.add_field(name='', value=''.join([f'1. {p[0]}\n' for p in progress]))
             text = f'<@{user_id}>'
 
-            cursor.execute('SELECT channel FROM users WHERE user_id = ?', (user_id,))
-            channel_id = cursor.fetchone()[0]
-            channel = client.get_channel(channel_id)
-            try:
-                msg = await channel.send(text, embed=embed)
-            except AttributeError:
-                embed = gen_error_embed(
-                    'The channel you set up is inaccessible or has been deleted',
-                    'Please change channel with /config',
-                    {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
-                )
-                await user.send(embed=embed)
-            except discord.errors.Forbidden:
-                embed = gen_error_embed(
-                    'Message cannot be sent on this channel',
-                    'Please set up a channel for possible transmission or contact your server administrator',
-                    {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
-                )
-                await user.send(embed=embed)
-            except Exception:
-                embed = gen_error_embed(
-                    'An unexpected error has occurred',
-                    'Please contact the developer',
-                    {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
-                )
-                await user.send(embed=embed)
+            async def send(channel_id):
+                channel = client.get_channel(channel_id)
+                try:
+                    msg = await channel.send(text, embed=embed)
+                except AttributeError:
+                    embed = gen_error_embed(
+                        'The channel you set up is inaccessible or has been deleted',
+                        'Please change channel with /config',
+                        {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                    )
+                    await user.send(embed=embed)
+                except discord.errors.Forbidden:
+                    embed = gen_error_embed(
+                        'Message cannot be sent on this channel',
+                        'Please set up a channel for possible transmission or contact your server administrator',
+                        {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                    )
+                    await user.send(embed=embed)
+                except Exception:
+                    embed = gen_error_embed(
+                        'An unexpected error has occurred',
+                        'Please contact the developer',
+                        {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                    )
+                    await user.send(embed=embed)
+
+            cursor.execute('SELECT channel FROM channels WHERE user_id = ?', (user_id,))
+            for c in cursor.fetchall():
+                asyncio.create_task(send(c[0]))
 
             # バックアップ・削除
             cursor.execute('SELECT message, timestamp FROM progress WHERE user_id = ?', (user_id,))
@@ -322,7 +352,7 @@ async def cron():
         if notice_result and now == notice_result[0]:
             if aggr_internal(user_id) == []:
                 embed = discord.Embed(
-                    title='<:custom_emoji:1384184744878805027>発生中!!!!',
+                    title='|　 | ∧_,∧\n|＿|( ´∀`)＜進捗ぬるぽ\n|柱|　⊂ ﾉ\n|￣|―ｕ\'',
                     color=0xb92946
                 )
                 user = await client.fetch_user(user_id)
@@ -330,37 +360,41 @@ async def cron():
                     name=user.name,
                     icon_url=user.avatar.url
                 )
-                embed.add_field(name='早く進捗出しやがれください！！', value='<:custom_emoji:1384184744878805027>'*16)
-                file = discord.File(fp='src/shinchoku_nainatta.png', filename='shinchoku_nainatta.png', spoiler=False)
-                embed.set_image(url='attachment://shinchoku_nainatta.png')
-                text = f'<@{user_id}>\n' + '<:custom_emoji:1384184744878805027>'*12
+                embed.add_field(
+                    name='',
+                    value=f'```　　　Λ＿Λ　　＼＼\n　 （　・∀・）　　　|　|　ｶﾞｯ\n　と　　　　）　 　 |　|\n　　 Ｙ　/ノ　　　 人\n　　　 /　）　 　 < 　>_Λ∩\n　　 ＿/し\'　／／. Ｖ｀Д´）/\n　（＿フ彡　　　　　 　　/　←>>{user.name}\n```')
+                text = f'<@{user_id}>\n'
 
-                cursor.execute('SELECT channel FROM users WHERE user_id = ?', (user_id,))
-                channel_id = cursor.fetchone()[0]
-                channel = client.get_channel(channel_id)
-                try:
-                    await channel.send(text, file=file, embed=embed)
-                except AttributeError:
-                    embed = gen_error_embed(
-                        'The channel you set up is inaccessible or has been deleted',
-                        'Please change channel with /config',
-                        {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
-                    )
-                    await user.send(embed=embed)
-                except discord.errors.Forbidden:
-                    embed = gen_error_embed(
-                        'Message cannot be sent on this channel',
-                        'Please set up a channel for possible transmission or contact your server administrator',
-                        {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
-                    )
-                    await user.send(embed=embed)
-                except Exception:
-                    embed = gen_error_embed(
-                        'An unexpected error has occurred',
-                        'Please contact the developer',
-                        {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
-                    )
-                    await user.send(embed=embed)
+                async def send(channel_id):
+                    channel = client.get_channel(channel_id)
+                    try:
+                        await channel.send(text, embed=embed)
+                    except AttributeError:
+                        error_embed = gen_error_embed(
+                            'The channel you set up is inaccessible or has been deleted',
+                            'Please change channel with /config',
+                            {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                        )
+                        await user.send(embed=error_embed)
+                    except discord.errors.Forbidden:
+                        error_embed = gen_error_embed(
+                            'Message cannot be sent on this channel',
+                            'Please set up a channel for possible transmission or contact your server administrator',
+                            {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                        )
+                        await user.send(embed=error_embed)
+                    except Exception as e:
+                        print(f'Send failed: {type(e)} {repr(e)}')
+                        error_embed = gen_error_embed(
+                            'An unexpected error has occurred',
+                            'Please contact the developer',
+                            {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                        )
+                        await user.send(embed=error_embed)
+
+                cursor.execute('SELECT channel FROM channels WHERE user_id = ?', (user_id,))
+                for c in cursor.fetchall():
+                    asyncio.create_task(send(c[0]))
 
     cursor.execute('SELECT user_id FROM users')
     users = cursor.fetchall()
