@@ -189,41 +189,44 @@ async def submit(ctx: discord.Interaction, progress: str):
 
 # /config  ユーザーごとの設定を変更
 @tree.command(name='config', description='設定を変更')
-@app_commands.describe(key='変更する項目 (channel, noticeのいずれか)', value='変更後の値 (channel -> チャンネルをメンション  notice -> HH:MM)', operation='channelのみ、add -> 追加  del -> 削除')
-async def config(ctx: discord.Interaction, key: str, value: str, operation: str = ''):
+@app_commands.describe(key='変更する項目', value='変更後の値 (channel -> チャンネルをメンション  notice -> HH:MM)')
+@app_commands.choices(key=[
+    app_commands.Choice(name='channel', value='channel'),
+    app_commands.Choice(name='notice', value='notice')
+])
+async def config(ctx: discord.Interaction, key: str, value: str):
     if registered(ctx.user.id):
         if key == 'channel':
             channel, judge = channel_judge(value)
             if judge:
-                if operation == 'add':
+                cursor.execute('SELECT channel FROM channels WHERE user_id = %s AND channel = %s', (ctx.user.id, channel,))
+                if cursor.fetchall() == []:
+                    # 追加処理
                     cursor.execute('INSERT INTO channels (user_id, channel) VALUES (%s, %s)', (ctx.user.id, channel,))
                     conn.commit()
                     embed = discord.Embed(
                         title='Channel config have been successfully updated',
                         color=0x219ddd
                     )
-                elif operation == 'del':
+                else:
+                    # 削除処理
                     cursor.execute('SELECT channel FROM channels WHERE user_id = %s AND channel != %s', (ctx.user.id, channel,))
                     if cursor.fetchall() != []:
-                        cursor.execute('SELECT channel FROM channels WHERE user_id = %s AND channel = %s', (ctx.user.id, channel,))
-                        if cursor.fetchall() != []:
-                            cursor.execute('DELETE FROM channels WHERE user_id = %s AND channel = %s', (ctx.user.id, channel,))
-                            conn.commit()
-                            embed = discord.Embed(
-                                title='Channel config have been successfully updated',
-                                color=0x219ddd
-                            )
-                        else:
-                            embed = gen_error_embed('No record for that value exists', 'Please enter the records that exist')
+                        cursor.execute('DELETE FROM channels WHERE user_id = %s AND channel = %s', (ctx.user.id, channel,))
+                        conn.commit()
+                        embed = discord.Embed(
+                            title='Channel config have been successfully updated',
+                            color=0x219ddd
+                        )
                     else:
                         embed = gen_error_embed('Too few channels set', 'Add 1 or more channels')
-                else:
-                    embed = gen_error_embed('Invalid operation', 'Please enter add or del')
             else:
                 embed = gen_error_embed('Invalid channel parameter', 'Please mention the channels that exist')
 
         elif key == 'notice':
-            if not re.fullmatch('([01][0-9]|2[0-3]):[0-5][0-9]', value):
+            if re.fullmatch(r'[0-9]:[0-5][0-9]', value):
+                value = f'0{value}'
+            elif not re.fullmatch(r'([01][0-9]|2[0-3]):[0-5][0-9]', value):
                 value = ''
             cursor.execute('UPDATE users SET notice = %s WHERE user_id = %s', (value, ctx.user.id,))
             conn.commit()
@@ -231,7 +234,7 @@ async def config(ctx: discord.Interaction, key: str, value: str, operation: str 
                 title='Notice config have been successfully updated',
                 color=0x219ddd
             )
-            embed.add_field(name='New config:', value='No notification' if value == '' else value)
+            embed.add_field(name='New config:', value='No notice' if value == '' else value)
         else:
             embed = gen_error_embed('A key that does not exist', 'Please specify a key that exists')
 
@@ -242,7 +245,48 @@ async def config(ctx: discord.Interaction, key: str, value: str, operation: str 
         )
         embed = gen_error_embed('You are not yet registered', 'Please register using /register')
 
-    await ctx.response.send_message(embed=embed)
+    await ctx.response.send_message(embed=embed, ephemeral=True)
+
+# /showconf  設定一覧を出力
+@tree.command(name='showconf', description='現在の設定を表示')
+async def showconf(ctx: discord.Interaction):
+    embed = discord.Embed(
+        title='設定一覧',
+        color=0xa0a0a0
+    )
+    cursor.execute('SELECT channel FROM channels WHERE user_id = %s', (ctx.user.id,))
+    channels = []
+    for c in cursor.fetchall():
+        channel = client.get_channel(c[0])
+        if channel is None:
+            error_embed = gen_error_embed(
+                'The channel you set up has been deleted',
+                'Please change channel with /config',
+                {'Channel_ID': c[0]}
+            )
+            view = discord.ui.View()
+            async def remove_channel_callback(ctx: discord.Interaction):
+                cursor.execute('DELETE FROM channels WHERE user_id = %s AND channel = %s', (ctx.user.id, c[0]))
+                conn.commit()
+                error_embed = gen_error_embed(
+                    'The channel you set up has been deleted',
+                    'Channel config have been changed',
+                    {'Channel_ID': c[0]}
+                )
+                await ctx.response.edit_message(embed=error_embed, view=None)
+            remove_button = discord.ui.Button(label='Remove this channel from config', style=discord.ButtonStyle.danger)
+            remove_button.callback = remove_channel_callback
+            view.add_item(remove_button)
+            await ctx.user.send(embed=error_embed, view=view)
+            continue
+        channels.append([channel.guild.name, channel.name])
+
+    embed.add_field(name='channel', value=''.join([f'1. {c[0]} / {c[1]}\n' for c in channels]))
+    cursor.execute('SELECT notice FROM users WHERE user_id = %s', (ctx.user.id,))
+    notice = cursor.fetchone()[0]
+    embed.add_field(name='notice', value=notice if notice else 'No notice')
+
+    await ctx.response.send_message(embed=embed, ephemeral=True)
 
 # /fubuki  こんこんきーつね!!
 @tree.command(name='fubuki', description='こんこんきーつね!!')
@@ -314,7 +358,7 @@ async def cron():
             async def send(channel_id):
                 channel = client.get_channel(channel_id)
                 try:
-                    msg = await channel.send(text, embed=embed)
+                    await channel.send(text, embed=embed)
                 except AttributeError:
                     error_embed = gen_error_embed(
                         'The channel you set up is inaccessible or has been deleted',
@@ -322,20 +366,62 @@ async def cron():
                         {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
                     )
                     await user.send(embed=error_embed)
+                    view = discord.ui.View()
+                    async def remove_channel_callback(ctx: discord.Interaction):
+                        cursor.execute('DELETE FROM channels WHERE user_id = %s AND channel = %s', (user_id, channel_id))
+                        conn.commit()
+                        error_embed = gen_error_embed(
+                            'The channel you set up is inaccessible or has been deleted',
+                            'Channel config have been changed',
+                            {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                        )
+                        await ctx.response.edit_message(embed=error_embed, view=None)
+                    remove_button = discord.ui.Button(label='Remove this channel from config', style=discord.ButtonStyle.danger)
+                    remove_button.callback = remove_channel_callback
+                    view.add_item(remove_button)
+                    await user.send(embed=error_embed, view=view)
                 except discord.errors.Forbidden:
                     error_embed = gen_error_embed(
                         'Message cannot be sent on this channel',
                         'Please set up a channel for possible transmission or contact your server administrator',
                         {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
                     )
-                    await user.send(embed=error_embed)
-                except Exception:
+                    view = discord.ui.View()
+                    async def remove_channel_callback(ctx: discord.Interaction):
+                        cursor.execute('DELETE FROM channels WHERE user_id = %s AND channel = %s', (user_id, channel_id))
+                        conn.commit()
+                        error_embed = gen_error_embed(
+                            'Message cannot be sent on this channel',
+                            'Channel config have been changed',
+                            {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                        )
+                        await ctx.response.edit_message(embed=error_embed, view=None)
+                    remove_button = discord.ui.Button(label='Remove this channel from config', style=discord.ButtonStyle.danger)
+                    remove_button.callback = remove_channel_callback
+                    view.add_item(remove_button)
+                    await user.send(embed=error_embed, view=view)
+                except Exception as e:
+                    print(f'Send failed: {type(e)} {repr(e)}')
                     error_embed = gen_error_embed(
                         'An unexpected error has occurred',
                         'Please contact the developer',
                         {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
                     )
                     await user.send(embed=error_embed)
+                    view = discord.ui.View()
+                    async def remove_channel_callback(ctx: discord.Interaction):
+                        cursor.execute('DELETE FROM channels WHERE user_id = %s AND channel = %s', (user_id, channel_id))
+                        conn.commit()
+                        error_embed = gen_error_embed(
+                            'An unexpected error has occurred',
+                            'Channel config have been changed',
+                            {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                        )
+                        await ctx.response.edit_message(embed=error_embed, view=None)
+                    remove_button = discord.ui.Button(label='Remove this channel from config', style=discord.ButtonStyle.danger)
+                    remove_button.callback = remove_channel_callback
+                    view.add_item(remove_button)
+                    await user.send(embed=error_embed, view=view)
 
             cursor.execute('SELECT channel FROM channels WHERE user_id = %s', (user_id,))
             for c in cursor.fetchall():
@@ -393,21 +479,62 @@ async def cron():
                             {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
                         )
                         await user.send(embed=error_embed)
+                        view = discord.ui.View()
+                        async def remove_channel_callback(ctx: discord.Interaction):
+                            cursor.execute('DELETE FROM channels WHERE user_id = %s AND channel = %s', (user_id, channel_id))
+                            conn.commit()
+                            error_embed = gen_error_embed(
+                                'The channel you set up is inaccessible or has been deleted',
+                                'Channel config have been changed',
+                                {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                            )
+                            await ctx.response.edit_message(embed=error_embed, view=None)
+                        remove_button = discord.ui.Button(label='Remove this channel from config', style=discord.ButtonStyle.danger)
+                        remove_button.callback = remove_channel_callback
+                        view.add_item(remove_button)
+                        await user.send(embed=error_embed, view=view)
                     except discord.errors.Forbidden:
                         error_embed = gen_error_embed(
                             'Message cannot be sent on this channel',
                             'Please set up a channel for possible transmission or contact your server administrator',
                             {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
                         )
-                        await user.send(embed=error_embed)
+                        view = discord.ui.View()
+                        async def remove_channel_callback(ctx: discord.Interaction):
+                            cursor.execute('DELETE FROM channels WHERE user_id = %s AND channel = %s', (user_id, channel_id))
+                            conn.commit()
+                            error_embed = gen_error_embed(
+                                'Message cannot be sent on this channel',
+                                'Channel config have been changed',
+                                {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                            )
+                            await ctx.response.edit_message(embed=error_embed, view=None)
+                        remove_button = discord.ui.Button(label='Remove this channel from config', style=discord.ButtonStyle.danger)
+                        remove_button.callback = remove_channel_callback
+                        view.add_item(remove_button)
+                        await user.send(embed=error_embed, view=view)
                     except Exception as e:
                         print(f'Send failed: {type(e)} {repr(e)}')
                         error_embed = gen_error_embed(
                             'An unexpected error has occurred',
                             'Please contact the developer',
-                            {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id, 'Exception type': type(e), 'Exception Detail': repr(e)}
+                            {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
                         )
                         await user.send(embed=error_embed)
+                        view = discord.ui.View()
+                        async def remove_channel_callback(ctx: discord.Interaction):
+                            cursor.execute('DELETE FROM channels WHERE user_id = %s AND channel = %s', (user_id, channel_id))
+                            conn.commit()
+                            error_embed = gen_error_embed(
+                                'An unexpected error has occurred',
+                                'Channel config have been changed',
+                                {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                            )
+                            await ctx.response.edit_message(embed=error_embed, view=None)
+                        remove_button = discord.ui.Button(label='Remove this channel from config', style=discord.ButtonStyle.danger)
+                        remove_button.callback = remove_channel_callback
+                        view.add_item(remove_button)
+                        await user.send(embed=error_embed, view=view)
 
                 cursor.execute('SELECT channel FROM channels WHERE user_id = %s', (user_id,))
                 for c in cursor.fetchall():
@@ -417,22 +544,6 @@ async def cron():
     users = cursor.fetchall()
     for u in users:
         asyncio.create_task(notice(u[0]))
-
-@client.event
-async def on_member_remove(member: discord.Member):
-    cursor.execute('SELECT * FROM users WHERE user_id = %s', (member.id,))
-    result = cursor.fetchone()
-    if result:
-        cursor.execute('DELETE FROM users WHERE user_id = %s', (member.id,))
-        conn.commit()
-        user = await client.fetch_user(member.id)
-        if user:
-            embed = gen_error_embed(
-                'You have been removed from the server and your registration information has been deleted',
-                'Re-registration is required to rejoin and use a server you have left',
-                {'Server': member.guild.name, 'Channel': result[2], 'Notice': result[3]}
-            )
-            await user.send(embed=embed)
 
 # Botの起動とDiscordサーバーへの接続
 client.run(TOKEN)
