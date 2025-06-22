@@ -1,19 +1,12 @@
 import discord
 from discord import app_commands
-from logging import getLogger, StreamHandler, Formatter, INFO
+from logger import get_logger
 from db import registered
 from views import gen_error_embed
 from utils import channel_judge
 import psycopg2
 
-logger = getLogger(__name__)
-handler = StreamHandler()
-handler.setLevel(INFO)
-formatter = Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-handler.setFormatter(formatter)
-logger.setLevel(INFO)
-logger.addHandler(handler)
-logger.propagate = False
+logger = get_logger(__name__)
 
 
 def setup(tree, conn, cursor, client):

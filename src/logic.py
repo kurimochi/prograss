@@ -1,15 +1,8 @@
 import discord
-from logging import getLogger, StreamHandler, Formatter, INFO
+from logger import get_logger
 from views import gen_error_embed
 
-logger = getLogger(__name__)
-handler = StreamHandler()
-handler.setLevel(INFO)
-formatter = Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-handler.setFormatter(formatter)
-logger.setLevel(INFO)
-logger.addHandler(handler)
-logger.propagate = False
+logger = get_logger(__name__)
 
 
 async def send_channel_message(user, channel, channel_id, text, embed, conn, cursor):

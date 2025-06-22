@@ -1,14 +1,7 @@
 import discord
-from logging import getLogger, StreamHandler, Formatter, INFO
+from logger import get_logger
 
-logger = getLogger(__name__)
-handler = StreamHandler()
-handler.setLevel(INFO)
-formatter = Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-handler.setFormatter(formatter)
-logger.setLevel(INFO)
-logger.addHandler(handler)
-logger.propagate = False
+logger = get_logger(__name__)
 
 
 def gen_error_embed(details, approach, info={}):

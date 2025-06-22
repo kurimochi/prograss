@@ -1,19 +1,14 @@
 import discord
 import os
+import asyncio
 import cron
 from discord import app_commands
-from logging import getLogger, StreamHandler, Formatter, INFO
+from logger import get_logger
 from db import init_db
 from commands import register, unregister, submit, aggregate, config, showconf, fubuki
+from health import start_health_server
 
-logger = getLogger(__name__)
-handler = StreamHandler()
-handler.setLevel(INFO)
-formatter = Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-handler.setFormatter(formatter)
-logger.setLevel(INFO)
-logger.addHandler(handler)
-logger.propagate = False
+logger = get_logger(__name__)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -68,10 +63,12 @@ async def on_shutdown():
         conn.close()
         logger.info("DB connection closed.")
 
-
-if __name__ == "__main__":
+async def main():
     if not TOKEN:
         print("Error: DISCORD_TOKEN environment variable is not set.")
         exit(1)
 
-    client.run(TOKEN)
+    await asyncio.gather(start_health_server(), client.start(TOKEN))
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -2,18 +2,11 @@ import asyncio
 from datetime import datetime
 from discord import Embed, utils
 from discord.ext import tasks
-from logging import getLogger, StreamHandler, Formatter, INFO
+from logger import get_logger
 from db import aggr_internal
 from logic import send_channel_message
 
-logger = getLogger(__name__)
-handler = StreamHandler()
-handler.setLevel(INFO)
-formatter = Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-handler.setFormatter(formatter)
-logger.setLevel(INFO)
-logger.addHandler(handler)
-logger.propagate = False
+logger = get_logger(__name__)
 
 
 async def setup_cron(conn, cursor, client):

@@ -1,28 +1,22 @@
 import os
 import psycopg2
 import time
-from logging import getLogger, StreamHandler, Formatter, INFO
+from logger import get_logger
 
-logger = getLogger(__name__)
-handler = StreamHandler()
-handler.setLevel(INFO)
-formatter = Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-logger.setLevel(INFO)
-logger.propagate = False
+logger = get_logger(__name__)
 
 
 def init_db():
-    DB_NAME = os.getenv("POSTGRES_DB")
-    DB_USER = os.getenv("POSTGRES_USER")
-    DB_PASS = os.getenv("POSTGRES_PASSWORD")
+    DB_HOST = os.getenv("DATABASE_HOST")
+    DB_USER = os.getenv("DATABASE_USER")
+    DB_PASS = os.getenv("DATABASE_PASSWORD")
+    DB_NAME = os.getenv("DATABASE_NAME")
 
     # DB初期化
     for i in range(10):
         try:
             conn = psycopg2.connect(
-                dbname=DB_NAME, user=DB_USER, password=DB_PASS, host="db"
+                dbname=DB_NAME, user=DB_USER, password=DB_PASS, host=DB_HOST
             )
             logger.info("Successfully connected to PostgreSQL.")
             break
