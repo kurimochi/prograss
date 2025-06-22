@@ -1,15 +1,17 @@
 import discord
-import sqlite3
+import psycopg2
 import asyncio
 import re
 import os
+import time
 from discord import app_commands
 from discord.ext import tasks
 from datetime import datetime
 
 TOKEN = os.getenv('TOKEN')
-DB_FILE = os.getenv('DB_FILE')
-BACKUP_DB_FILE = os.getenv('BACKUP_DB_FILE')
+DB_NAME = os.getenv('POSTGRES_DB')
+DB_USER = os.getenv('POSTGRES_USER')
+DB_PASS = os.getenv('POSTGRES_PASSWORD')
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -18,44 +20,60 @@ client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
 # DB初期化
-conn = sqlite3.connect(DB_FILE)
+for i in range(10):
+    try:
+        conn = psycopg2.connect(dbname=DB_NAME, user=DB_USER, password=DB_PASS, host='db')
+        break
+    except psycopg2.OperationalError as e:
+        print(f'DB connection failed, retry... ({i+1}/10)')
+        time.sleep(3)
+else:
+    raise Exception('Could not connect to PostgreSQL.')
+
 cursor = conn.cursor()
-backup_conn = sqlite3.connect(BACKUP_DB_FILE)
-backup_cursor = backup_conn.cursor()
 
-cursor.execute('CREATE TABLE IF NOT EXISTS progress ( \
-                    id INTEGER PRIMARY KEY, \
-                    user_id INTEGER NOT NULL, \
-                    message TEXT NOT NULL, \
-                    timestamp DEFAULT CURRENT_TIMESTAMP \
-                )')
-cursor.execute('CREATE TABLE IF NOT EXISTS users ( \
-                    id INTEGER PRIMARY KEY, \
-                    user_id INTEGER NOT NULL, \
-                    notice TEXT \
-                )')
-cursor.execute('CREATE TABLE IF NOT EXISTS channels ( \
-                    id INTEGER PRIMARY KEY, \
-                    user_id INTEGER NOT NULL, \
-                    channel INTEGER NOT NULL \
-                )')
-cursor.execute('CREATE TABLE IF NOT EXISTS votes ( \
-                    id INTEGER PRIMARY KEY, \
-                    user_id INTEGER NOT NULL, \
-                    message_id INTEGER NOT NULL, \
-                    consent INTEGER NOT NULL, \
-                    refusal INTEGER NOT NULL \
-                )')
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS progress (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        message TEXT NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+''')
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        notice TEXT
+    )
+''')
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS channels (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        channel BIGINT NOT NULL
+    )
+''')
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS votes (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        message_id BIGINT NOT NULL,
+        consent INTEGER NOT NULL,
+        refusal INTEGER NOT NULL
+    )
+''')
 
-backup_cursor.execute('CREATE TABLE IF NOT EXISTS progress ( \
-                            id INTEGER PRIMARY KEY, \
-                            user_id INTEGER NOT NULL, \
-                            message TEXT NOT NULL, \
-                            timestamp DEFAULT CURRENT_TIMESTAMP \
-                        )')
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS backup_progress (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        message TEXT NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+''')
 
 conn.commit()
-backup_conn.commit()
 
 def gen_error_embed(details, approach, info={}):
     embed = discord.Embed(
@@ -79,7 +97,7 @@ def gen_error_embed(details, approach, info={}):
 
 # ユーザーが登録しているかを判定
 def registered(user_id):
-    cursor.execute('SELECT user_id FROM users WHERE user_id = ?', (user_id,))
+    cursor.execute('SELECT user_id FROM users WHERE user_id = %s', (user_id,))
     result = cursor.fetchone()
 
     if result is None:
@@ -99,7 +117,7 @@ def channel_judge(channel):
 
 # aggregate内のprogress取得
 def aggr_internal(user_id):
-    cursor.execute('SELECT message FROM progress WHERE user_id = ?', (user_id,))
+    cursor.execute('SELECT message FROM progress WHERE user_id = %s', (user_id,))
     progress = cursor.fetchall()
     return progress
 
@@ -121,8 +139,8 @@ async def register(ctx: discord.Interaction, channel: str):
     else:
         channel, judge = channel_judge(channel)
         if judge:
-            cursor.execute('INSERT INTO users (user_id) VALUES (?)', (user_id,))
-            cursor.execute('INSERT INTO channels (user_id, channel) VALUES (?, ?)', (user_id, channel,))
+            cursor.execute('INSERT INTO users (user_id) VALUES (%s)', (user_id,))
+            cursor.execute('INSERT INTO channels (user_id, channel) VALUES (%s, %s)', (user_id, channel,))
             conn.commit()
             embed = discord.Embed(
                 title='Registration completed',
@@ -139,8 +157,8 @@ async def unregister(ctx: discord.Interaction):
     user_id = ctx.user.id
 
     if registered(user_id):
-        cursor.execute('DELETE FROM users WHERE user_id = ?', (user_id,))
-        cursor.execute('DELETE FROM channels WHERE user_id = ?', (user_id,))
+        cursor.execute('DELETE FROM users WHERE user_id = %s', (user_id,))
+        cursor.execute('DELETE FROM channels WHERE user_id = %s', (user_id,))
         conn.commit()
         embed = discord.Embed(
             title='Unregistration completed',
@@ -158,7 +176,7 @@ async def submit(ctx: discord.Interaction, progress: str):
     user_id = ctx.user.id
 
     if registered(user_id):
-        cursor.execute('INSERT INTO progress (user_id, message) VALUES (?, ?)', (user_id, progress,))
+        cursor.execute('INSERT INTO progress (user_id, message) VALUES (%s, %s)', (user_id, progress,))
         conn.commit()
         embed = discord.Embed(
             title='Progress was submitted',
@@ -178,18 +196,18 @@ async def config(ctx: discord.Interaction, key: str, value: str, operation: str 
             channel, judge = channel_judge(value)
             if judge:
                 if operation == 'add':
-                    cursor.execute('INSERT INTO channels (user_id, channel) VALUES (?, ?)', (ctx.user.id, channel,))
+                    cursor.execute('INSERT INTO channels (user_id, channel) VALUES (%s, %s)', (ctx.user.id, channel,))
                     conn.commit()
                     embed = discord.Embed(
                         title='Channel config have been successfully updated',
                         color=0x219ddd
                     )
                 elif operation == 'del':
-                    cursor.execute('SELECT channel FROM channels WHERE user_id = ? AND channel != ?', (ctx.user.id, channel,))
+                    cursor.execute('SELECT channel FROM channels WHERE user_id = %s AND channel != %s', (ctx.user.id, channel,))
                     if cursor.fetchall() != []:
-                        cursor.execute('SELECT channel FROM channels WHERE user_id = ? AND channel = ?', (ctx.user.id, channel,))
+                        cursor.execute('SELECT channel FROM channels WHERE user_id = %s AND channel = %s', (ctx.user.id, channel,))
                         if cursor.fetchall() != []:
-                            cursor.execute('DELETE FROM channels WHERE user_id = ? AND channel = ?', (ctx.user.id, channel,))
+                            cursor.execute('DELETE FROM channels WHERE user_id = %s AND channel = %s', (ctx.user.id, channel,))
                             conn.commit()
                             embed = discord.Embed(
                                 title='Channel config have been successfully updated',
@@ -207,7 +225,7 @@ async def config(ctx: discord.Interaction, key: str, value: str, operation: str 
         elif key == 'notice':
             if not re.fullmatch('([01][0-9]|2[0-3]):[0-5][0-9]', value):
                 value = ''
-            cursor.execute('UPDATE users SET notice = ? WHERE user_id = ?', (value, ctx.user.id,))
+            cursor.execute('UPDATE users SET notice = %s WHERE user_id = %s', (value, ctx.user.id,))
             conn.commit()
             embed = discord.Embed(
                 title='Notice config have been successfully updated',
@@ -298,37 +316,36 @@ async def cron():
                 try:
                     msg = await channel.send(text, embed=embed)
                 except AttributeError:
-                    embed = gen_error_embed(
+                    error_embed = gen_error_embed(
                         'The channel you set up is inaccessible or has been deleted',
                         'Please change channel with /config',
                         {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
                     )
-                    await user.send(embed=embed)
+                    await user.send(embed=error_embed)
                 except discord.errors.Forbidden:
-                    embed = gen_error_embed(
+                    error_embed = gen_error_embed(
                         'Message cannot be sent on this channel',
                         'Please set up a channel for possible transmission or contact your server administrator',
                         {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
                     )
-                    await user.send(embed=embed)
+                    await user.send(embed=error_embed)
                 except Exception:
-                    embed = gen_error_embed(
+                    error_embed = gen_error_embed(
                         'An unexpected error has occurred',
                         'Please contact the developer',
                         {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
                     )
-                    await user.send(embed=embed)
+                    await user.send(embed=error_embed)
 
-            cursor.execute('SELECT channel FROM channels WHERE user_id = ?', (user_id,))
+            cursor.execute('SELECT channel FROM channels WHERE user_id = %s', (user_id,))
             for c in cursor.fetchall():
                 asyncio.create_task(send(c[0]))
 
             # バックアップ・削除
-            cursor.execute('SELECT message, timestamp FROM progress WHERE user_id = ?', (user_id,))
+            cursor.execute('SELECT message, timestamp FROM progress WHERE user_id = %s', (user_id,))
             for message, timestamp in cursor.fetchall():
-                backup_cursor.execute('INSERT INTO progress (user_id, message, timestamp) VALUES (?, ?, ?)', (user_id, message, timestamp))
-            cursor.execute('DELETE FROM progress WHERE user_id = ?', (user_id,))
-            backup_conn.commit()
+                cursor.execute('INSERT INTO backup_progress (user_id, message, timestamp) VALUES (%s, %s, %s)', (user_id, message, timestamp,))
+            cursor.execute('DELETE FROM progress WHERE user_id = %s', (user_id,))
             conn.commit()
 
             # 投票作成
@@ -339,7 +356,7 @@ async def cron():
             msg = await msg.channel.fetch_message(msg.id)
             consent = discord.utils.get(msg.reactions, emoji='👍').count - 1
             refusal = discord.utils.get(msg.reactions, emoji='👎').count - 1
-            cursor.execute('INSERT INTO votes (user_id, message_id, consent, refusal) VALUES (?, ?, ?, ?)', (user_id, msg.id, consent, refusal,))
+            cursor.execute('INSERT INTO votes (user_id, message_id, consent, refusal) VALUES (%s, %s, %s, %s)', (user_id, msg.id, consent, refusal))
             conn.commit()
 
         for u in users:
@@ -347,7 +364,7 @@ async def cron():
 
     # 通知処理
     async def notice(user_id):
-        cursor.execute('SELECT notice FROM users WHERE user_id = ?', (user_id,))
+        cursor.execute('SELECT notice FROM users WHERE user_id = %s', (user_id,))
         notice_result = cursor.fetchone()
         if notice_result and now == notice_result[0]:
             if aggr_internal(user_id) == []:
@@ -388,11 +405,11 @@ async def cron():
                         error_embed = gen_error_embed(
                             'An unexpected error has occurred',
                             'Please contact the developer',
-                            {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id}
+                            {'Server': channel.guild.name if channel else 'Unknown', 'Channel': channel_id, 'Exception type': type(e), 'Exception Detail': repr(e)}
                         )
                         await user.send(embed=error_embed)
 
-                cursor.execute('SELECT channel FROM channels WHERE user_id = ?', (user_id,))
+                cursor.execute('SELECT channel FROM channels WHERE user_id = %s', (user_id,))
                 for c in cursor.fetchall():
                     asyncio.create_task(send(c[0]))
 
@@ -403,10 +420,10 @@ async def cron():
 
 @client.event
 async def on_member_remove(member: discord.Member):
-    cursor.execute('SELECT * FROM users WHERE user_id = ?', (member.id,))
+    cursor.execute('SELECT * FROM users WHERE user_id = %s', (member.id,))
     result = cursor.fetchone()
     if result:
-        cursor.execute('DELETE FROM users WHERE user_id = ?', (member.id,))
+        cursor.execute('DELETE FROM users WHERE user_id = %s', (member.id,))
         conn.commit()
         user = await client.fetch_user(member.id)
         if user:
