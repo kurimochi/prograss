@@ -1,6 +1,16 @@
 import os
 import psycopg2
 import time
+from logging import getLogger, StreamHandler, Formatter, INFO
+
+logger = getLogger(__name__)
+handler = StreamHandler()
+handler.setLevel(INFO)
+formatter = Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+logger.setLevel(INFO)
+logger.propagate = False
 
 
 def init_db():
@@ -14,10 +24,12 @@ def init_db():
             conn = psycopg2.connect(
                 dbname=DB_NAME, user=DB_USER, password=DB_PASS, host="db"
             )
+            logger.info("Successfully connected to PostgreSQL.")
             break
-        except psycopg2.OperationalError:
+        except psycopg2.OperationalError as e:
             print(f"DB connection failed, retry... ({i+1}/10)")
             time.sleep(3)
+            logger.exception(f"PostgreSQL connection error: {e}")
     else:
         raise Exception("Could not connect to PostgreSQL.")
 
@@ -55,18 +67,37 @@ def init_db():
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""",
     ]
-    for t in TABLES:
-        cursor.execute(t)
-    conn.commit()
+    try:
+        for t in TABLES:
+            cursor.execute(t)
+            logger.info(f"Table created or already exists: {t}")
+        conn.commit()
+        logger.info("Database tables initialized successfully.")
+    except Exception as e:
+        logger.exception(f"Error creating tables: {e}")
+        conn.rollback()
+        raise
 
     return conn, cursor
 
 
 def registered(user_id, cursor):
-    cursor.execute("SELECT 1 FROM users WHERE user_id = %s LIMIT 1", (user_id,))
-    return cursor.fetchone() is not None
+    try:
+        cursor.execute("SELECT 1 FROM users WHERE user_id = %s LIMIT 1", (user_id,))
+        result = cursor.fetchone()
+        logger.info(f"Checking if user {user_id} is registered.")
+        return result is not None
+    except Exception as e:
+        logger.exception(f"Error checking registration for user {user_id}: {e}")
+        raise
 
 
 def aggr_internal(user_id, cursor):
-    cursor.execute("SELECT message FROM progress WHERE user_id = %s", (user_id,))
-    return [row[0] for row in cursor.fetchall()]
+    try:
+        cursor.execute("SELECT message FROM progress WHERE user_id = %s", (user_id,))
+        messages = [row[0] for row in cursor.fetchall()]
+        logger.info(f"Retrieved messages for user {user_id}.")
+        return messages
+    except Exception as e:
+        logger.exception(f"Error retrieving messages for user {user_id}: {e}")
+        raise

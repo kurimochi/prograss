@@ -22,14 +22,14 @@ def setup(tree, conn, cursor, client):
         user_id = ctx.user.id
         if not registered(user_id, cursor):
             embed = gen_error_embed(
-                "You are not yet registered", "Please register using /register"
+                "You are not yet registered.", "Please register using /register."
             )
             await ctx.response.send_message(embed=embed, ephemeral=True)
             return
 
         if key == "channel":
-            channel, judge = channel_judge(value, client)
-            if judge:
+            channel = channel_judge(value, client)
+            if channel:
                 cursor.execute(
                     "SELECT 1 FROM channels WHERE user_id = %s AND channel = %s LIMIT 1",
                     (
@@ -73,12 +73,12 @@ def setup(tree, conn, cursor, client):
                         )
                     else:
                         embed = gen_error_embed(
-                            "Too few channels set", "Add 1 or more channels"
+                            "Too few channels set.", "Add 1 or more channels."
                         )
             else:
                 embed = gen_error_embed(
-                    "Invalid channel parameter",
-                    "Please mention the channels that exist",
+                    "Invalid channel parameter.",
+                    "Please mention the channels that exist.",
                 )
         elif key == "notice":
             # H:MMまたはHH:MMを許容
@@ -102,6 +102,6 @@ def setup(tree, conn, cursor, client):
             )
         else:
             embed = gen_error_embed(
-                "A key that does not exist", "Please specify a key that exists"
+                "A key that does not exist.", "Please specify a key that exists."
             )
         await ctx.response.send_message(embed=embed, ephemeral=True)
