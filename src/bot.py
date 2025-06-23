@@ -31,7 +31,7 @@ async def on_ready():
         await tree.sync()
         logger.info("Bot is ready and commands synced.")
     except Exception as e:
-        logger.exception(f"Failed to sync commands or start cron: {e}")
+        logger.exception(f"Failed to setup on_ready: {e}")
         exit(1)
 
 
@@ -63,12 +63,14 @@ async def on_shutdown():
         conn.close()
         logger.info("DB connection closed.")
 
+
 async def main():
     if not TOKEN:
         print("Error: DISCORD_TOKEN environment variable is not set.")
         exit(1)
 
     await asyncio.gather(start_health_server(), client.start(TOKEN))
+
 
 if __name__ == "__main__":
     asyncio.run(main())

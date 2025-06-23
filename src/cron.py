@@ -13,10 +13,10 @@ async def setup_cron(conn, cursor, client):
     @tasks.loop(seconds=60)
     async def cron():
         now = datetime.now().strftime("%H:%M")
-        logger.info(f"[cron] tick: {now}")
 
         if now == "00:00":
             try:
+                logger.info("[cron] Starting daily progress check and sending process")
                 cursor.execute("SELECT user_id FROM users")
                 user_ids = [u[0] for u in cursor.fetchall()]
                 logger.info(

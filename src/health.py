@@ -4,13 +4,15 @@ from logger import get_logger
 
 logger = get_logger(__name__)
 
-async def handle(request):
+
+async def handle(_):
     try:
         logger.info("Received health check request.")
         return web.Response(text="OK")
     except Exception as e:
         logger.exception(f"Error in health check handler: {e}")
         return web.Response(status=500, text="Internal Server Error")
+
 
 async def start_health_server():
     try:
@@ -25,7 +27,9 @@ async def start_health_server():
         logger.exception(f"Failed to start health server: {e}")
         raise
 
+
 if __name__ == "__main__":
+
     async def main():
         try:
             await start_health_server()

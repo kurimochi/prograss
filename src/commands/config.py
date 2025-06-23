@@ -8,6 +8,7 @@ from logger import get_logger
 
 logger = get_logger(__name__)
 
+
 def setup(tree, conn, cursor, client):
     @tree.command(name="config", description="設定を変更")
     @app_commands.describe(
@@ -69,18 +70,24 @@ def setup(tree, conn, cursor, client):
                                 (user_id, channel),
                             )
                             conn.commit()
-                            logger.info("Channel %s removed for user %s", channel, user_id)
+                            logger.info(
+                                "Channel %s removed for user %s", channel, user_id
+                            )
                             embed = discord.Embed(
                                 title="Channel config have been successfully updated",
                                 color=0x219DDD,
                             )
                         else:
-                            logger.warning("User %s tried to remove too few channels", user_id)
+                            logger.warning(
+                                "User %s tried to remove too few channels", user_id
+                            )
                             embed = gen_error_embed(
                                 "Too few channels set.", "Add 1 or more channels."
                             )
                 else:
-                    logger.error("Invalid channel parameter from user %s: %s", user_id, value)
+                    logger.error(
+                        "Invalid channel parameter from user %s: %s", user_id, value
+                    )
                     embed = gen_error_embed(
                         "Invalid channel parameter.",
                         "Please mention the channels that exist.",
@@ -92,7 +99,9 @@ def setup(tree, conn, cursor, client):
                 if re.fullmatch(r"[0-9]:[0-5][0-9]", value):
                     value = f"0{value}"
                 elif not re.fullmatch(r"([01][0-9]|2[0-3]):[0-5][0-9]", value):
-                    logger.warning("Invalid notice format from user %s: %s", user_id, value)
+                    logger.warning(
+                        "Invalid notice format from user %s: %s", user_id, value
+                    )
                     embed = gen_error_embed(
                         "Invalid time format.", "Please use HH:MM 24-hour format."
                     )
@@ -124,6 +133,6 @@ def setup(tree, conn, cursor, client):
             logger.exception("Exception in /config command for user %s", user_id)
             error_embed = gen_error_embed(
                 "An unexpected error occurred.",
-                "Please try again later or contact support."
+                "Please try again later or contact support.",
             )
             await ctx.response.send_message(embed=error_embed, ephemeral=True)
