@@ -1,5 +1,7 @@
 import sys
-from logging import getLogger, StreamHandler, Formatter, INFO, WARNING
+from logging import getLogger, StreamHandler, Formatter, INFO, WARNING, DEBUG
+
+show_debug = False
 
 
 def get_logger(name: str = None):
@@ -9,7 +11,10 @@ def get_logger(name: str = None):
     if not logger.hasHandlers():
         # INFO以下はstdout
         stdout_handler = StreamHandler(sys.stdout)
-        stdout_handler.setLevel(INFO)
+        if show_debug:
+            stdout_handler.setLevel(DEBUG)
+        else:
+            stdout_handler.setLevel(INFO)
         stdout_handler.addFilter(lambda record: record.levelno <= INFO)
         formatter = Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
         stdout_handler.setFormatter(formatter)
@@ -22,6 +27,9 @@ def get_logger(name: str = None):
         stderr_handler.setFormatter(formatter)
         logger.addHandler(stderr_handler)
 
+    if show_debug:
+        logger.setLevel(DEBUG)
+    else:
         logger.setLevel(INFO)
         logger.propagate = False
 
